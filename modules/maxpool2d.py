@@ -1,12 +1,13 @@
 from modules.layer import Layer
-#from cython_modules.maxpool2d import maxpool_forward_cython
+from cython_modules.maxpool2d import maxpool_forward_cython
 import numpy as np
 
 class MaxPool2D(Layer):
     def __init__(self, kernel_size, stride):
         self.kernel_size = kernel_size
         self.stride = stride
-
+    
+    '''
     def forward(self, input, training=True):  # input: np.ndarray of shape [B, C, H, W]
         self.input = input
         B, C, H, W = input.shape
@@ -35,6 +36,19 @@ class MaxPool2D(Layer):
                         output[b, c, i, j] = max_val
                         self.max_indices[b, c, i, j] = (h_start + max_idx[0], w_start + max_idx[1])
 
+        return output
+    '''
+    
+    def forward(self, input, training=True):
+        # Aseguramos que el input sea float64 para que coincida con el memoryview de Cython
+        input = np.ascontiguousarray(input, dtype=np.float64)
+        
+        # Llamamos a la función de Cython
+        output, self.max_indices = maxpool_forward_cython(
+            input, self.kernel_size, self.stride
+        )
+        
+        self.input_shape = input.shape
         return output
 
     def backward(self, grad_output, learning_rate=None):
