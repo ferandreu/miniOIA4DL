@@ -15,6 +15,8 @@ class Conv2D(Layer):
         # MODIFICAR: Añadir nuevo if-else para otros algoritmos de convolución
         if conv_algo == 0:
             self.mode = 'direct' 
+        elif conv_algo == 1:
+            self.mode = 'im2col'
         else:
             print(f"Algoritmo {conv_algo} no soportado aún")
             self.mode = 'direct' 
@@ -50,7 +52,6 @@ class Conv2D(Layer):
 
     def get_weights(self):
         return {'kernels': self.kernels, 'biases': self.biases}
-
     def set_weights(self, weights):
         self.kernels = weights['kernels']
         self.biases = weights['biases']
@@ -60,8 +61,10 @@ class Conv2D(Layer):
         # PISTA: Usar estos if-else si implementas más algoritmos de convolución
         if self.mode == 'direct':
             return self._forward_direct(input)
+        elif self.mode == 'im2col':
+            return self._forward_im2col(input)
         else:
-            raise ValueError("Mode must be 'direct")
+            raise ValueError("Mode must be 'direct' or 'im2col'")
 
     def backward(self, grad_output, learning_rate):
         # ESTO NO ES NECESARIO YA QUE NO VAIS A HACER BACKPROPAGATION
@@ -72,7 +75,7 @@ class Conv2D(Layer):
 
     # --- DIRECT IMPLEMENTATION ---
 
-    def _forward_direct(self, input):
+#    def _forward_direct(self, input):
         batch_size, _, in_h, in_w = input.shape
         k_h, k_w = self.kernel_size, self.kernel_size
 
@@ -96,6 +99,65 @@ class Conv2D(Layer):
                             output[b, out_c, i, j] += np.sum(region * self.kernels[out_c, in_c])
                 output[b, out_c] += self.biases[out_c]
 
+        return output
+    
+    def _forward_direct(self, input):
+        batch_size, _, in_h, in_w = input.shape
+        k_h, k_w = self.kernel_size, self.kernel_size
+
+        if self.padding > 0:
+            input = np.pad(input,
+                           ((0, 0), (0, 0), (self.padding, self.padding), (self.padding, self.padding)),
+                           mode='constant').astype(np.float32)
+
+        out_h = (input.shape[2] - k_h) // self.stride + 1
+        out_w = (input.shape[3] - k_w) // self.stride + 1
+        output = np.zeros((batch_size, self.out_channels, out_h, out_w), dtype=np.float32)
+
+
+        for out_c in range(self.out_channels):
+            for in_c in range(self.in_channels):
+                for ki in range(k_h):
+                    for kj in range(k_w):
+                        region = input[:, in_c,
+                                        ki : ki + out_h * self.stride: self.stride,
+                                        kj : kj + out_w * self.stride: self.stride]
+                        output[:, out_c, :, :] += region * self.kernels[out_c, in_c, ki, kj]
+            output[:, out_c, :, :] += self.biases[out_c]
+
+        return output
+    
+    def _forward_im2col(self, input):
+        batch_size, _, in_h, in_w = input.shape
+        k_h, k_w = self.kernel_size, self.kernel_size
+
+        if self.padding > 0:
+            input = np.pad(input,
+                           ((0, 0), (0, 0), (self.padding, self.padding), (self.padding, self.padding)),
+                           mode='constant').astype(np.float32)
+
+        out_h = (input.shape[2] - k_h) // self.stride + 1
+        out_w = (input.shape[3] - k_w) // self.stride + 1
+        
+        weights_matrix = self.kernels.reshape(self.out_channels, -1)
+        
+        im2col_matrix = np.zeros((self.in_channels * k_h * k_w, batch_size * out_h * out_w), dtype=np.float32)
+        
+        col = 0
+        for b in range(batch_size):
+            for i in range(out_h):
+                for j in range(out_w):
+                    patch = input[b, :, 
+                                  i*self.stride : i*self.stride + k_h, 
+                                  j*self.stride : j*self.stride + k_w]
+                    im2col_matrix[:, col] = patch.flatten()
+                    col += 1
+
+        result_matrix = np.dot(weights_matrix, im2col_matrix)
+        result_matrix += self.biases.reshape(-1, 1)
+        output = result_matrix.reshape(self.out_channels, batch_size, out_h, out_w)
+        output = output.transpose(1, 0, 2, 3) # Reordenar ejes
+        
         return output
 
     def _backward_direct(self, grad_output, learning_rate):
@@ -135,5 +197,6 @@ class Conv2D(Layer):
         self.biases -= learning_rate * grad_biases
 
         return grad_input
+    
 
     # PISTA: Se te ocurren otros algoritmos de convolución?
