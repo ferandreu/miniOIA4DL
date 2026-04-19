@@ -1,6 +1,6 @@
 from modules.layer import Layer
 from modules.utils import *
-#from cython_modules.im2col import im2col_forward_cython
+from cython_modules.im2col import im2col_forward_cython
 
 import numpy as np
 
@@ -14,8 +14,10 @@ class Conv2D(Layer):
         
         # MODIFICAR: Añadir nuevo if-else para otros algoritmos de convolución
         if conv_algo == 0:
-            self.mode = 'direct' 
+            self.mode = 'im2col_cython' 
         elif conv_algo == 1:
+            self.mode = 'direct'
+        elif conv_algo == 2:
             self.mode = 'im2col'
         else:
             print(f"Algoritmo {conv_algo} no soportado aún")
@@ -63,6 +65,8 @@ class Conv2D(Layer):
             return self._forward_direct(input)
         elif self.mode == 'im2col':
             return self._forward_im2col(input)
+        elif self.mode == 'im2col_cython':
+            return self._forward_im2col_cython(input)
         else:
             raise ValueError("Mode must be 'direct' or 'im2col'")
 
@@ -140,25 +144,49 @@ class Conv2D(Layer):
         out_w = (input.shape[3] - k_w) // self.stride + 1
         
         weights_matrix = self.kernels.reshape(self.out_channels, -1)
-        
         im2col_matrix = np.zeros((self.in_channels * k_h * k_w, batch_size * out_h * out_w), dtype=np.float32)
         
         col = 0
         for b in range(batch_size):
             for i in range(out_h):
                 for j in range(out_w):
-                    patch = input[b, :, 
+                    region = input[b, :, 
                                   i*self.stride : i*self.stride + k_h, 
                                   j*self.stride : j*self.stride + k_w]
-                    im2col_matrix[:, col] = patch.flatten()
+                    im2col_matrix[:, col] = region.flatten()
                     col += 1
 
         result_matrix = np.dot(weights_matrix, im2col_matrix)
         result_matrix += self.biases.reshape(-1, 1)
         output = result_matrix.reshape(self.out_channels, batch_size, out_h, out_w)
-        output = output.transpose(1, 0, 2, 3) # Reordenar ejes
+        output = output.transpose(1, 0, 2, 3)
         
         return output
+    
+    def _forward_im2col_cython(self, input):
+        batch_size, _, in_h, in_w = input.shape
+        k_h, k_w = self.kernel_size, self.kernel_size
+
+        if self.padding > 0:
+            input_padded = np.pad(input,
+                           ((0, 0), (0, 0), (self.padding, self.padding), (self.padding, self.padding)),
+                           mode='constant').astype(np.float32)
+
+        im2col_matrix = im2col_forward_cython(input_padded, k_h, k_w, self.stride)
+
+        weights_matrix = self.kernels.reshape(self.out_channels, -1)
+
+        result_matrix = np.dot(weights_matrix, im2col_matrix)
+        result_matrix += self.biases.reshape(-1, 1)
+
+        out_h = (in_h - k_h + 2 * self.padding) // self.stride + 1
+        out_w = (in_w - k_w + 2 * self.padding) // self.stride + 1
+
+        output = result_matrix.reshape(self.out_channels, batch_size, out_h, out_w)
+        output = output.transpose(1, 0, 2, 3)
+
+        return output
+
 
     def _backward_direct(self, grad_output, learning_rate):
         batch_size, _, out_h, out_w = grad_output.shape
