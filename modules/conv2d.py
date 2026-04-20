@@ -105,7 +105,7 @@ class Conv2D(Layer):
 
         return output
     
-    def _forward_direct(self, input):
+    def _forward_direct(self, input):   # Vectorizado
         batch_size, _, in_h, in_w = input.shape
         k_h, k_w = self.kernel_size, self.kernel_size
 
@@ -157,10 +157,12 @@ class Conv2D(Layer):
                     col += 1
 
         result_matrix = np.dot(weights_matrix, im2col_matrix)
+
+        # --- INICIO BLOQUE GENERADO CON IA ---
         result_matrix += self.biases.reshape(-1, 1)
         output = result_matrix.reshape(self.out_channels, batch_size, out_h, out_w)
         output = output.transpose(1, 0, 2, 3)
-        
+        # --- FIN BLOQUE GENERADO CON IA ---
         return output
     
     def _forward_im2col_cython(self, input):
@@ -177,14 +179,13 @@ class Conv2D(Layer):
         weights_matrix = self.kernels.reshape(self.out_channels, -1)
 
         result_matrix = np.dot(weights_matrix, im2col_matrix)
-        result_matrix += self.biases.reshape(-1, 1)
-
+        # --- INICIO BLOQUE GENERADO CON IA ---
+        result_matrix += self.biases.reshape(-1, 1)      
         out_h = (in_h - k_h + 2 * self.padding) // self.stride + 1
         out_w = (in_w - k_w + 2 * self.padding) // self.stride + 1
-
         output = result_matrix.reshape(self.out_channels, batch_size, out_h, out_w)
         output = output.transpose(1, 0, 2, 3)
-
+        # --- FIN BLOQUE GENERADO CON IA ---
         return output
 
 
